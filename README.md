@@ -50,12 +50,19 @@ cd zero2build
 ./build/bootstrap-sdk.sh
 
 docker build -t orangepi:zero2-build -f sdk/userpatches/Dockerfile sdk
+
+# 先准备离线 Chromium snap seed（只需一次，约 1 GB 下载）
+docker run --rm --privileged -v "$PWD/sdk:/root/orangepi" -v "$PWD:/repo:ro" \
+  --entrypoint /bin/bash orangepi:zero2-build /repo/build/linux/prepare-chromium-seed.sh
+
 docker run --rm --privileged \
   --cap-add=SYS_ADMIN --cap-add=MKNOD --cap-add=SYS_PTRACE \
   --security-opt apparmor=unconfined \
   -v "$PWD/sdk:/root/orangepi" \
   orangepi:zero2-build zero2-xfce
 ```
+
+跳过 Chromium seed 也能构建成功，但镜像里不会预装浏览器（首次开机需要联网 snap 安装）。
 
 ### 方式 C：原生 Linux（最快）
 
