@@ -1,0 +1,72 @@
+diff --git a/scripts/debootstrap.sh b/scripts/debootstrap.sh
+index 3c29901..fab2687 100755
+--- a/scripts/debootstrap.sh
++++ b/scripts/debootstrap.sh
+@@ -47,6 +47,9 @@ debootstrap_ng()
+ 	[[ $use_tmpfs == yes ]] && mount -t tmpfs -o size=${phymem}M tmpfs $SDCARD
+ 
+ 	# stage: prepare basic rootfs: unpack cache or create from scratch
++	if [[ $TMPDIR == /var/cache/zero2-build/tmp ]]; then
++		install -d -m 1777 "$SDCARD$TMPDIR" || exit_with_error "Cannot create target build temp directory"
++	fi
+ 	create_rootfs_cache
+ 
+ 	call_extension_method "pre_install_distribution_specific" "config_pre_install_distribution_specific" << 'PRE_INSTALL_DISTRIBUTION_SPECIFIC'
+@@ -153,8 +156,12 @@ create_rootfs_cache()
+ 	if [[ -f $cache_fname && "$ROOT_FS_CREATE_ONLY" != "force" ]]; then
+ 		local date_diff=$(( ($(date +%s) - $(stat -c %Y $cache_fname)) / 86400 ))
+ 		display_alert "Extracting $display_name" "$date_diff days old" "info"
+-		pv -p -b -r -c -N "[ .... ] $display_name" "$cache_fname" | lz4 -dc | tar xp --xattrs -C $SDCARD/
+-		[[ $? -ne 0 ]] && rm $cache_fname && exit_with_error "Cache $cache_fname is corrupted and was deleted. Restart."
++		# Read directly: Docker's unattended TTY can block pv before it opens the archive.
++		lz4 -dc "$cache_fname" | tar xp --xattrs -C "$SDCARD/"
++		local unpack_status=("${PIPESTATUS[@]}")
++		if (( unpack_status[0] || unpack_status[1] )); then
++			exit_with_error "Cannot extract $cache_fname (lz4=${unpack_status[0]}, tar=${unpack_status[1]})"
++		fi
+ 		rm $SDCARD/etc/resolv.conf
+ 		echo "nameserver $NAMESERVER" >> $SDCARD/etc/resolv.conf
+ 		create_sources_list "$RELEASE" "$SDCARD/"
+@@ -323,7 +330,7 @@ create_rootfs_cache()
+ 			${OUTPUT_DIALOG:+' | dialog --backtitle "$backtitle" --progressbox "Installing Orange Pi main packages..." $TTY_Y $TTY_X'} \
+ 			${OUTPUT_VERYSILENT:+' >/dev/null 2>/dev/null'} ';EVALPIPE=(${PIPESTATUS[@]})'
+ 
+-		[[ ${PIPESTATUS[0]} -ne 0 ]] && exit_with_error "Installation of Orange Pi main packages for ${BRANCH} ${BOARD} ${RELEASE} ${DESKTOP_APPGROUPS_SELECTED} ${DESKTOP_ENVIRONMENT} ${BUILD_MINIMAL} failed"
++		[[ ${EVALPIPE[0]} -ne 0 ]] && exit_with_error "Installation of Orange Pi main packages for ${BRANCH} ${BOARD} ${RELEASE} ${DESKTOP_APPGROUPS_SELECTED} ${DESKTOP_ENVIRONMENT} ${BUILD_MINIMAL} failed"
+ 
+ 		if [[ $BUILD_DESKTOP == "yes" ]]; then
+ 			# FIXME Myy : Are we keeping this only for Desktop users,
+@@ -345,13 +352,23 @@ create_rootfs_cache()
+ 			fi
+ 
+ 			display_alert "Installing the desktop packages for" "Orange Pi" "info"
++			if [[ $BOARD == orangepizero2 && $RELEASE == jammy && -s $SRC/tmp/apt-cache/fonts-noto-cjk-extra.deb ]]; then
++				local font_deb="$SRC/tmp/apt-cache/fonts-noto-cjk-extra.deb" font_hash font_version font_candidate
++				font_version=$(dpkg-deb -f "$font_deb" Version)
++				font_candidate=$(LC_ALL=C chroot "$SDCARD" apt-cache policy fonts-noto-cjk-extra | awk '/Candidate:/ {print $2}')
++				if [[ $font_version == "$font_candidate" ]]; then
++					font_hash=$(chroot "$SDCARD" apt-cache show "fonts-noto-cjk-extra=$font_version" | awk '/^SHA256:/ {print $2; exit}')
++					[[ $font_hash =~ ^[0-9a-f]{64}$ ]] && printf '%s  %s\n' "$font_hash" "$font_deb" | sha256sum -c - || exit_with_error "Cached font package checksum mismatch"
++					cp "$font_deb" "$SDCARD/var/cache/apt/archives/fonts-noto-cjk-extra_${font_version//:/%3a}_all.deb" || exit_with_error "Cannot stage cached fonts"
++				fi
++			fi
+ 			eval 'LC_ALL=C LANG=C chroot $SDCARD /bin/bash -e -c "DEBIAN_FRONTEND=noninteractive apt-get -y -q \
+ 				$apt_extra $apt_extra_progress install ${apt_desktop_install_flags} $PACKAGE_LIST_DESKTOP"' \
+ 				${PROGRESS_LOG_TO_FILE:+' | tee -a $DEST/${LOG_SUBPATH}/debootstrap.log'} \
+ 				${OUTPUT_DIALOG:+' | dialog --backtitle "$backtitle" --progressbox "Installing Orange Pi desktop packages..." $TTY_Y $TTY_X'} \
+ 				${OUTPUT_VERYSILENT:+' >/dev/null 2>/dev/null'} ';EVALPIPE=(${PIPESTATUS[@]})'
+ 
+-			[[ ${PIPESTATUS[0]} -ne 0 ]] && exit_with_error "Installation of Orange Pi desktop packages for ${BRANCH} ${BOARD} ${RELEASE} ${DESKTOP_APPGROUPS_SELECTED} ${DESKTOP_ENVIRONMENT} ${BUILD_MINIMAL} failed"
++			[[ ${EVALPIPE[0]} -ne 0 ]] && exit_with_error "Installation of Orange Pi desktop packages for ${BRANCH} ${BOARD} ${RELEASE} ${DESKTOP_APPGROUPS_SELECTED} ${DESKTOP_ENVIRONMENT} ${BUILD_MINIMAL} failed"
+ 		fi
+ 
+ 		install_docker
+@@ -654,7 +671,7 @@ PREPARE_IMAGE_SIZE
+ 
+ 	check_loop_device "$LOOP"
+ 
+-	losetup -P $LOOP ${SDCARD}.raw
++	losetup -P "$LOOP" "${SDCARD}.raw" || exit_with_error "Cannot attach image to $LOOP"
+ 
+ 	# loop device was grabbed here, unlock
+ 	flock -u $FD

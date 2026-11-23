@@ -1,0 +1,24 @@
+diff --git a/scripts/image-helpers.sh b/scripts/image-helpers.sh
+index 1e259c7..2135630 100755
+--- a/scripts/image-helpers.sh
++++ b/scripts/image-helpers.sh
+@@ -101,6 +101,19 @@ check_loop_device()
+ 
+ 	local device=$1
+ 	if [[ ! -b $device ]]; then
++		# Docker Desktop's WSL kernel usually registers loop partitions in
++		# sysfs but does not run udev, so /dev/loopNpM is absent. Recreate
++		# the node from the kernel-provided major:minor pair.
++		local sysdev="/sys/class/block/$(basename "$device")/dev"
++		if [[ ${CONTAINER_COMPAT} == yes && -r $sysdev ]]; then
++			local major_minor major minor
++			major_minor=$(cat "$sysdev")
++			IFS=: read -r major minor <<< "$major_minor"
++			if [[ $major =~ ^[0-9]+$ && $minor =~ ^[0-9]+$ ]]; then
++				mknod -m0660 "$device" b "$major" "$minor" 2>/dev/null || true
++			fi
++		fi
++		[[ -b $device ]] && return 0
+ 		if [[ $CONTAINER_COMPAT == yes && -b /tmp/$device ]]; then
+ 			display_alert "Creating device node" "$device"
+ 			mknod -m0660 "${device}" b "0x$(stat -c '%t' "/tmp/$device")" "0x$(stat -c '%T' "/tmp/$device")"

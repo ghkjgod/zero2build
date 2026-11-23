@@ -1,0 +1,28 @@
+# 上游 SDK 源码树由 build/bootstrap-sdk.sh 拉取，不入库（数 GB，含内核与 U-Boot）
+/sdk/
+
+# 构建产物
+*.img
+*.img.sha256
+*.img.xz
+*.img.gz
+*.deb
+*.tar
+
+# 本机临时文件与日志
+/tmp/
+*.log
+
+# 密钥材料：绝不入库
+*.pem
+*.key
+id_ed25519*
+id_rsa*
+
+# 烧录工具
+rpi-imager*.exe
+imager-*.exe
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db

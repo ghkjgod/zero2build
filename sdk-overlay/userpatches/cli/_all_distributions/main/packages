@@ -1,0 +1,10 @@
+# Runtime and validation tools for H616 display, GPU and V4L2/Cedrus.
+edid-decode
+libdrm-tests
+mesa-vulkan-drivers
+vulkan-tools
+gstreamer1.0-libav
+gstreamer1.0-vaapi
+ffmpeg
+zram-tools
+u-boot-tools
